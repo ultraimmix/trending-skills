@@ -346,3 +346,4 @@ sqlite3 data/trends.db
 - [skills.sh](https://skills.sh) - 技能数据来源
 - [Anthropic](https://anthropic.com) - Claude AI
 - [Resend](https://resend.com) - 邮件服务
+# Skills Trending
