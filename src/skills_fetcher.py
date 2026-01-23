@@ -1,9 +1,11 @@
 """
 Skills Fetcher - 从 skills.sh/trending 获取技能排行榜
+使用 Playwright 处理动态渲染页面
 """
 import re
+import asyncio
 from typing import Dict, List
-import requests
+from playwright.async_api import async_playwright
 
 from src.config import SKILLS_TRENDING_URL, SKILLS_BASE_URL
 
@@ -11,15 +13,11 @@ from src.config import SKILLS_TRENDING_URL, SKILLS_BASE_URL
 class SkillsFetcher:
     """从 skills.sh/trending 获取排行榜"""
 
-    def __init__(self, timeout: int = 30):
+    def __init__(self, timeout: int = 30000):
         """初始化"""
         self.base_url = SKILLS_BASE_URL
         self.trending_url = SKILLS_TRENDING_URL
         self.timeout = timeout
-        self.session = requests.Session()
-        self.session.headers.update({
-            "User-Agent": "Mozilla/5.0 (compatible; SkillsTrendingBot/1.0)"
-        })
 
     def fetch(self) -> List[Dict]:
         """
@@ -39,81 +37,138 @@ class SkillsFetcher:
         """
         print(f"📡 正在获取榜单: {self.trending_url}")
 
+        # 运行异步方法
+        return asyncio.run(self._fetch_async())
+
+    async def _fetch_async(self) -> List[Dict]:
+        """异步获取数据"""
         try:
-            html_content = self.fetch_trending_page()
-            skills = self.parse_leaderboard(html_content)
+            async with async_playwright() as p:
+                # 启动浏览器
+                browser = await p.chromium.launch()
 
-            if skills:
-                print(f"✅ 成功获取 {len(skills)} 个技能")
-                return skills
+                # 创建页面
+                page = await browser.new_page()
 
-            raise Exception("无法从页面解析技能列表")
+                # 设置超时
+                page.set_default_timeout(self.timeout)
+
+                # 导航到页面
+                print("  正在加载页面...")
+                await page.goto(self.trending_url, wait_until="domcontentloaded")
+
+                # 等待排行榜加载
+                print("  等待排行榜加载...")
+                try:
+                    await page.wait_for_selector('h1:has-text("Skills Leaderboard")', timeout=10000)
+                except:
+                    print("  ⚠️ 标题选择器未找到，尝试继续...")
+
+                # 等待页面完全加载
+                await page.wait_for_load_state("networkidle", timeout=10000)
+
+                # 获取页面内容
+                content = await page.content()
+
+                # 解析排行榜
+                skills = self.parse_leaderboard(content.decode())
+
+                await browser.close()
+
+                if skills:
+                    print(f"✅ 成功获取 {len(skills)} 个技能")
+                    return skills
+
+                raise Exception("无法从页面解析技能列表")
 
         except Exception as e:
             print(f"❌ 获取榜单失败: {e}")
             raise
 
-    def fetch_trending_page(self) -> str:
-        """获取页面 HTML"""
-        try:
-            response = self.session.get(self.trending_url, timeout=self.timeout)
-            response.raise_for_status()
-            return response.text
-        except requests.RequestException as e:
-            raise Exception(f"请求失败: {e}")
-
     def parse_leaderboard(self, html_content: str) -> List[Dict]:
         """
         解析排行榜 - skills.sh 页面使用 Markdown 表格格式
 
-        格式示例:
+        格式:
         ## Skills Leaderboard
         ...
-        1\\n\\n### remotion-best-practices\\n\\nremotion-dev/skills\\n\\n5.6K
-        2\\n\\n### vercel-react-best-practices\\n\\n...
+        1
+
+        ### remotion-best-practices
+
+        remotion-dev/skills
+
+        5.6K
+        ...
         """
         skills = []
 
         # 查找排行榜开始位置
-        # 查找 "## Skills Leaderboard" 标题之后的内容
         leaderboard_start = html_content.find("## Skills Leaderboard")
         if leaderboard_start == -1:
             raise Exception("未找到 Skills Leaderboard 标题")
 
-        # 提取排行榜部分内容
+        # 提取排行榜部分
         content = html_content[leaderboard_start:]
 
-        # 使用正则表达式解析每个技能条目
-        # 格式: 数字\n\n### skill-name\n\nowner\n\ninstalls
-        pattern = r'(\d+)\n\n### ([\w-]+)\n\n([\w-]+/[\w-]+)\n\n([\d.]+K?)'
+        # 使用更宽松的正则表达式
+        # 格式可能是: 1\n\n### skill-name\n\nowner\n\ninstalls
+        # 也可能是: 1\n\n### skill-name\n\nowner\n\ninstalls\n\n（可能有多余空行）
 
-        matches = re.findall(pattern, content)
+        # 尝试多种模式
+        patterns = [
+            # 模式1: 标准格式
+            r'(\d+)\s*\n\s*###\s*([\w-]+)\s*\n\s*([\w-]+/[\w-]+)\s*\n\s*([\d.]+K?)',
+            # 模式2: 更宽松，允许更多空格
+            r'(\d+)\s+###\s+([\w-]+)\s+([\w-]+/[\w-]+)\s+([\d.]+K?)',
+            # 模式3: 跨行匹配（处理换行符）
+            r'(\d+)\s*###\s*([\w-]+)\s*([\w-]+/[\w-]+)\s*([\d.]+K?)',
+        ]
 
-        for match in matches:
-            rank = int(match[0])
-            name = match[1]
-            owner = match[2]
-            installs_str = match[3]
+        skills_dict = {}  # 用于去重，保留最新排名
 
-            # 处理安装量 (5.6K -> 5600)
-            installs = self._parse_installs(installs_str)
+        for pattern in patterns:
+            matches = re.finditer(pattern, content, re.MULTILINE)
 
-            skills.append({
-                "rank": rank,
-                "name": name,
-                "owner": owner,
-                "installs": installs,
-                "url": f"{self.base_url}/{owner}/{name}"
-            })
+            for match in matches:
+                rank = int(match.group(1))
+                name = match.group(2)
+                owner = match.group(3)
+                installs_str = match.group(4)
+
+                # 处理安装量
+                installs = self._parse_installs(installs_str)
+
+                # 只保留每个技能的最高排名（第一次出现）
+                if name not in skills_dict or skills_dict[name]["rank"] > rank:
+                    skills_dict[name] = {
+                        "rank": rank,
+                        "name": name,
+                        "owner": owner,
+                        "installs": installs,
+                        "url": f"{self.base_url}/{owner}/{name}"
+                    }
+
+            if skills_dict:
+                break
+
+        # 按排名排序
+        skills = sorted(skills_dict.values(), key=lambda x: x["rank"])
 
         return skills
 
     def _parse_installs(self, installs_str: str) -> int:
         """解析安装量字符串"""
+        if not installs_str:
+            return 0
+
         installs_str = installs_str.strip().upper()
 
         if "K" in installs_str:
-            return int(float(installs_str.replace("K", "")) * 1000)
+            try:
+                return int(float(installs_str.replace("K", "")) * 1000)
+            except ValueError:
+                return 0
 
         try:
             return int(installs_str)

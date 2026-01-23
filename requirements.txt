@@ -22,3 +22,6 @@ resend>=1.0.0
 # HTML 解析
 beautifulsoup4>=4.12.0
 lxml>=5.0.0
+
+# 浏览器自动化（动态渲染支持）
+playwright>=1.40.0
