@@ -1,73 +1,62 @@
 name: Skills Trending Daily
 
 on:
-  # 每天 UTC 02:00 执行 = 北京时间 10:00
   schedule:
-    - cron: '0 2 * * *'
+    - cron: '0 2 * * *'  # Runs daily at 02:00 UTC (10:00 Beijing)
 
-  # 允许手动触发
   workflow_dispatch:
 
-# 防止并发执行
 concurrency:
   group: skills-trending
   cancel-in-progress: false
 
-# 权限配置
 permissions:
   contents: write
 
 jobs:
   trending:
-    name: 生成技能趋势报告
+    name: Generate Skills Trending Report
     runs-on: ubuntu-latest
-
-    # 设置超时时间（30分钟）
     timeout-minutes: 30
 
     steps:
-      - name: 检出代码
+      - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      - name: 设置 Python 环境
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: 安装依赖
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: 显示环境信息
+      - name: Show environment info
         run: |
-          echo "Python 版本: $(python --version)"
-          echo "工作目录: $(pwd)"
-          echo "当前时间 (UTC): $(date -u)"
-          echo "目标日期: $(date -u +%Y-%m-%d)"
+          echo "Python: $(python --version)"
+          echo "Working directory: $(pwd)"
+          echo "Current time (UTC): $(date -u)"
+          echo "Target date: $(date -u +%Y-%m-%d)"
 
-      - name: 创建 data 目录
+      - name: Create data directory
         run: mkdir -p data
 
-      - name: 运行 Skills Trending
+      - name: Run Skills Trending
         env:
-          # Claude API
           ZHIPU_API_KEY: ${{ secrets.ZHIPU_API_KEY }}
           ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
-
-          # Resend 邮件
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
           RESEND_FROM_EMAIL: ${{ secrets.RESEND_FROM_EMAIL || 'onboarding@resend.dev' }}
-
-          # 数据库
           DB_RETENTION_DAYS: 30
         run: python src/main_trending.py
 
-      - name: 上传数据库 (备份)
+      - name: Upload database backup
         uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -75,12 +64,12 @@ jobs:
           path: data/trends.db
           retention-days: 90
 
-      - name: 检查执行结果
+      - name: Check execution result
         if: always()
         run: |
           if [ -f "data/trends.db" ]; then
-            echo "✅ 数据库文件存在"
+            echo "Database file exists"
             ls -lh data/
           else
-            echo "⚠️ 数据库文件不存在"
+            echo "Database file not found"
           fi
