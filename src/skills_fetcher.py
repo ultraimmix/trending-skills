@@ -115,24 +115,21 @@ class SkillsFetcher:
 
     def parse_leaderboard(self, html_content: str) -> List[Dict]:
         """
-        解析排行榜 - skills.sh 页面使用 Markdown 表格格式
+        解析排行榜 - skills.sh 页面使用文本格式
 
         格式:
-        ## Skills Leaderboard
+        SKILLS LEADERBOARD
         ...
         1
-
-        ### remotion-best-practices
-
+        remotion-best-practices
         remotion-dev/skills
-
-        5.6K
+        7.0K
         ...
         """
         skills = []
 
         # 查找排行榜开始位置 - 支持多种格式
-        for marker in ["## Skills Leaderboard", "Skills Leaderboard", "Leaderboard"]:
+        for marker in ["SKILLS LEADERBOARD", "Skills Leaderboard", "LEADERBOARD", "Leaderboard"]:
             leaderboard_start = html_content.find(marker)
             if leaderboard_start != -1:
                 print(f"  找到标记: '{marker}'")
@@ -147,23 +144,27 @@ class SkillsFetcher:
         # 提取排行榜部分
         content = html_content[leaderboard_start:]
 
-        # 使用更宽松的正则表达式
-        # 格式可能是: 1\n\n### skill-name\n\nowner\n\ninstalls
-        # 也可能是: 1\n\n### skill-name\n\nowner\n\ninstalls\n\n（可能有多余空行）
+        # 新格式: 没有###前缀，直接是 rank\nname\nowner\ninstalls
+        # 格式示例:
+        # 1
+        # remotion-best-practices
+        # remotion-dev/skills
+        # 7.0K
 
-        # 尝试多种模式
         patterns = [
-            # 模式1: 标准格式
+            # 模式1: 新格式 (无###前缀)
+            r'(\d+)\s*\n\s*([a-z0-9-]+)\s*\n\s*([\w-]+/[\w-]+)\s*\n\s*([\d.]+K?)',
+            # 模式2: 允许更多字符
+            r'(\d+)\s*\n\s*([a-zA-Z0-9_-]+)\s*\n\s*([\w-]+/[\w-]+)\s*\n\s*([\d.]+K?)',
+            # 模式3: 旧格式 (有###前缀)
             r'(\d+)\s*\n\s*###\s*([\w-]+)\s*\n\s*([\w-]+/[\w-]+)\s*\n\s*([\d.]+K?)',
-            # 模式2: 更宽松，允许更多空格
-            r'(\d+)\s+###\s+([\w-]+)\s+([\w-]+/[\w-]+)\s+([\d.]+K?)',
-            # 模式3: 跨行匹配（处理换行符）
-            r'(\d+)\s*###\s*([\w-]+)\s*([\w-]+/[\w-]+)\s*([\d.]+K?)',
+            # 模式4: 最宽松
+            r'(\d+)\s+([a-zA-Z0-9_-]+)\s+([\w-]+/[\w-]+)\s+([\d.]+K?)',
         ]
 
         skills_dict = {}  # 用于去重，保留最新排名
 
-        for pattern in patterns:
+        for i, pattern in enumerate(patterns):
             matches = re.finditer(pattern, content, re.MULTILINE)
 
             for match in matches:
@@ -186,7 +187,7 @@ class SkillsFetcher:
                     }
 
             if skills_dict:
-                print(f"  使用模式匹配到 {len(skills_dict)} 个技能")
+                print(f"  使用模式 {i+1} 匹配到 {len(skills_dict)} 个技能")
                 break
 
         # 按排名排序
