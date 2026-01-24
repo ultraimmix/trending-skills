@@ -18,12 +18,13 @@
 - [GitHub Actions](#github-actions)
 - [数据模型](#数据模型)
 - [开发指南](#开发指南)
+- [常见问题](#常见问题)
 
 ---
 
 ## 项目简介
 
-**Skills Trending Daily** 是一个自动化技能趋势追踪系统。它每天从 [skills.sh/trending](https://skills.sh/trending) 获取最新的技能排行榜，使用 Claude AI 对 Top 20 技能进行智能分析和分类，计算排名变化趋势，并通过 Resend 发送精美的 HTML 邮件报告。
+**Skills Trending Daily** 是一个自动化技能趋势追踪系统。它每天从 [skills.sh/trending](https://skills.sh/trending) 获取最新的技能排行榜，使用 Claude AI 对热门技能进行智能分析和分类，计算排名变化趋势，并通过 Resend 发送专业的 HTML 邮件报告。
 
 ### 为什么需要这个项目？
 
@@ -40,26 +41,26 @@
 
 | 功能 | 说明 |
 |-----|------|
-| **排行榜抓取** | 每天自动获取 Top 100 技能排行 |
-| **详情抓取** | 深度抓取 Top 20 技能的详细信息 |
+| **排行榜抓取** | 使用 Playwright 动态渲染获取 Top 100 技能排行 |
+| **详情抓取** | 深度抓取热门技能的详细信息 |
 | **AI 分析** | Claude AI 自动总结、分类、提取价值 |
 | **趋势计算** | 排名变化、安装量变化、新晋/掉榜检测 |
-| **邮件报告** | 精美 HTML 邮件，每日自动推送 |
-| **数据存储** | SQLite 存储 30 天历史数据 |
+| **邮件报告** | 专业 HTML 邮件，每个技能可点击跳转 |
+| **数据存储** | SQLite 存储历史数据，支持趋势分析 |
 
 ### 邮件报告内容
 
 ```
-📊 Skills Trending Daily - 2026-01-23
-├── Top 20 榜单（带 AI 总结）
-│   ├── 技能名称、排名、安装量
+Skills Trending Daily - 2026-01-24
+├── Top 20 Leaderboard（含 AI 总结）
+│   ├── 技能名称（可点击跳转）、排名、安装量
 │   ├── AI 一句话摘要
 │   ├── 详细说明
 │   └── 解决的问题标签
-├── 📈 上升幅度 Top 5
-├── 📉 下降幅度 Top 5
-├── 🆕 新晋榜单 / ❌ 跌出榜单
-└── ⚡ 安装量暴涨告警（>30%）
+├── Rising Skills（上升幅度 Top 5）
+├── Declining Skills（下降幅度 Top 5）
+├── New & Dropped（新晋/掉榜）
+└── Trending Up（安装量暴涨告警）
 ```
 
 ---
@@ -67,21 +68,21 @@
 ## 系统架构
 
 ```
-╔════════════════════════════════════════════════════════════╗
-║                    Skills Trending 系统架构                 ║
-╚════════════════════════════════════════════════════════════╝
+┌─────────────────────────────────────────────────────────────────┐
+│                        Skills Trending 系统架构                   │
+└─────────────────────────────────────────────────────────────────┘
 
   ┌──────────────┐      ┌──────────────┐      ┌──────────────┐
-  │   GitHub     │      │  Skills      │      │    Claude    │
-  │   Actions    │ ──▶ │  Fetcher     │ ──▶ │   Summarizer │
-  │  (Cron Daily)│      │ skills.sh    │      │     AI       │
+  │   GitHub     │      │   Playwright │      │    Claude    │
+  │   Actions    │ ──▶ │  Skills      │ ──▶ │  Summarizer │
+  │  (Cron Daily)│      │  Fetcher     │      │     AI       │
   └──────────────┘      └──────┬───────┘      └──────┬───────┘
                                │                     │
                                ▼                     │
                         ┌──────────────┐              │
                         │   Detail     │              │
                         │  Fetcher     │              │
-                        │  (Top 20)    │              │
+                        │  (Top N)     │              │
                         └──────┬───────┘              │
                                │                       │
                                └───────┬───────────────┘
@@ -111,7 +112,7 @@
                                └──────┬───────┘
                                       │
                                       ▼
-                               📧 您的邮箱
+                               ──────► 您的邮箱
 ```
 
 ---
@@ -133,6 +134,9 @@ cd trending-skills
 
 # 安装依赖
 pip install -r requirements.txt
+
+# 安装 Playwright 浏览器
+playwright install chromium
 ```
 
 ### 配置
@@ -165,14 +169,14 @@ python src/main_trending.py
 
 | 变量 | 必需 | 说明 | 默认值 |
 |-----|------|------|--------|
-| `ZHIPU_API_KEY` | ✅ | Claude API Key（智谱代理） | - |
-| `ANTHROPIC_BASE_URL` | ❌ | Claude API 地址 | `https://open.bigmodel.cn/api/anthropic` |
-| `RESEND_API_KEY` | ✅ | Resend API Key | - |
-| `EMAIL_TO` | ✅ | 收件人邮箱 | - |
-| `RESEND_FROM_EMAIL` | ❌ | 发件人邮箱 | `onboarding@resend.dev` |
-| `DB_PATH` | ❌ | 数据库路径 | `data/trends.db` |
-| `DB_RETENTION_DAYS` | ❌ | 数据保留天数 | `30` |
-| `SURGE_THRESHOLD` | ❌ | 暴涨阈值（比例） | `0.3` |
+| `ZHIPU_API_KEY` | Yes | Claude API Key（智谱代理） | - |
+| `ANTHROPIC_BASE_URL` | No | Claude API 地址 | `https://open.bigmodel.cn/api/anthropic` |
+| `RESEND_API_KEY` | Yes | Resend API Key | - |
+| `EMAIL_TO` | Yes | 收件人邮箱 | - |
+| `RESEND_FROM_EMAIL` | No | 发件人邮箱 | `onboarding@resend.dev` |
+| `DB_PATH` | No | 数据库路径 | `data/trends.db` |
+| `DB_RETENTION_DAYS` | No | 数据保留天数 | `30` |
+| `SURGE_THRESHOLD` | No | 暴涨阈值（比例） | `0.3` |
 
 ### Resend 配置
 
@@ -184,36 +188,24 @@ python src/main_trending.py
 
 ## 使用方法
 
-### 1. 命令行运行
+### 命令行运行
 
 ```bash
 # 完整流程
 python src/main_trending.py
 ```
 
-### 2. 作为 Claude Code Skill
-
-安装 Skill 后，可以用自然语言查询：
-
-```
-今天技能排行榜
-Top 10 skills
-remotion-best-practices 是什么
-哪些技能上升了
-技能趋势分析
-```
-
-### 3. 数据库查询
+### 数据库查询
 
 ```bash
-# 查看最新数据
+# 查看最新数据日期
 sqlite3 data/trends.db "SELECT date FROM skills_daily ORDER BY date DESC LIMIT 1;"
 
-# 查看今日排行榜
-sqlite3 data/trends.db "SELECT rank, name, installs FROM skills_daily WHERE date = '2026-01-23' ORDER BY rank LIMIT 10;"
+# 查看今日排行榜 Top 10
+sqlite3 data/trends.db "SELECT rank, name, installs FROM skills_daily WHERE date = '2026-01-24' ORDER BY rank LIMIT 10;"
 
 # 查看技能详情
-sqlite3 data/trends.db "SELECT * FROM skills_details WHERE name = 'remotion-best-practices';"
+sqlite3 data/trends.db "SELECT name, summary, category FROM skills_details WHERE name = 'remotion-best-practices';"
 ```
 
 ---
@@ -223,19 +215,21 @@ sqlite3 data/trends.db "SELECT * FROM skills_details WHERE name = 'remotion-best
 ### 自动化部署
 
 1. Fork 本仓库
-2. 在 GitHub Settings > Secrets 中添加：
+2. 在 GitHub Settings > Secrets and variables > Actions 中添加：
    - `ZHIPU_API_KEY`
    - `RESEND_API_KEY`
-   - `EMAIL_TO`
+   - `EMAIL_TO`（可选）
 3. 启用 Actions
 
 ### 定时执行
 
 默认每天 **UTC 02:00**（北京时间 10:00）自动运行。
 
+修改时间：编辑 `.github/workflows/skills-trending.yml` 中的 `cron` 表达式。
+
 ### 手动触发
 
-在 GitHub Actions 页面点击 "Run workflow" 手动执行。
+在 GitHub Actions 页面点击 "Run workflow" 按钮手动执行。
 
 ---
 
@@ -245,6 +239,7 @@ sqlite3 data/trends.db "SELECT * FROM skills_details WHERE name = 'remotion-best
 
 | 字段 | 类型 | 说明 |
 |-----|------|------|
+| `id` | INTEGER | 主键 |
 | `date` | TEXT | 日期 (YYYY-MM-DD) |
 | `rank` | INTEGER | 当日排名 |
 | `name` | TEXT | 技能名称 |
@@ -253,12 +248,14 @@ sqlite3 data/trends.db "SELECT * FROM skills_details WHERE name = 'remotion-best
 | `installs_delta` | INTEGER | 安装量变化 |
 | `installs_rate` | REAL | 安装量变化率 |
 | `rank_delta` | INTEGER | 排名变化（正=上升） |
+| `url` | TEXT | 技能链接 |
 
 ### skills_details - 技能详情
 
 | 字段 | 类型 | 说明 |
 |-----|------|------|
-| `name` | TEXT | 技能名称（主键） |
+| `id` | INTEGER | 主键 |
+| `name` | TEXT | 技能名称（唯一） |
 | `summary` | TEXT | AI 一句话摘要 |
 | `description` | TEXT | 详细描述 |
 | `use_case` | TEXT | 使用场景 |
@@ -268,6 +265,16 @@ sqlite3 data/trends.db "SELECT * FROM skills_details WHERE name = 'remotion-best
 | `rules_count` | INTEGER | 规则数量 |
 | `owner` | TEXT | 拥有者 |
 | `url` | TEXT | 技能链接 |
+
+### skills_history - 历史趋势
+
+| 字段 | 类型 | 说明 |
+|-----|------|------|
+| `id` | INTEGER | 主键 |
+| `skill_name` | TEXT | 技能名称 |
+| `date` | TEXT | 日期 |
+| `rank` | INTEGER | 当日排名 |
+| `installs` | INTEGER | 安装量 |
 
 ---
 
@@ -279,58 +286,99 @@ sqlite3 data/trends.db "SELECT * FROM skills_details WHERE name = 'remotion-best
 skills-trending/
 ├── .github/workflows/
 │   └── skills-trending.yml    # GitHub Actions 配置
-├── plugins/
-│   └── trending-skills/       # Claude Code Skill
-│       └── skills/
-│           └── trending-skills/
-│               └── SKILL.md   # Skill 定义
 ├── src/
 │   ├── config.py              # 配置管理
 │   ├── database.py            # SQLite 操作
-│   ├── skills_fetcher.py      # 榜单抓取
+│   ├── skills_fetcher.py      # 榜单抓取（Playwright）
 │   ├── detail_fetcher.py      # 详情抓取
 │   ├── claude_summarizer.py   # AI 分析
 │   ├── trend_analyzer.py      # 趋势计算
 │   ├── html_reporter.py       # 邮件生成
 │   ├── resend_sender.py       # 邮件发送
 │   └── main_trending.py       # 主入口
+├── plugins/
+│   └── trending-skills/       # Claude Code Skill
 ├── data/
 │   └── trends.db              # 数据库（运行时生成）
 ├── requirements.txt
 ├── .env.example
+├── CHANGELOG.md
 └── README.md
 ```
 
-### 添加新功能
+### 核心模块说明
 
-1. **新增数据源**：修改 `skills_fetcher.py`
-2. **新增分析维度**：修改 `trend_analyzer.py`
-3. **新增邮件内容**：修改 `html_reporter.py`
-4. **新增 AI 提示词**：修改 `claude_summarizer.py`
+| 模块 | 功能 |
+|-----|------|
+| `skills_fetcher.py` | 使用 Playwright 抓取 skills.sh 榜单，支持动态渲染 |
+| `detail_fetcher.py` | 抓取单个技能的详细页面内容 |
+| `claude_summarizer.py` | 调用 Claude API 分析技能内容 |
+| `trend_analyzer.py` | 计算排名变化、新晋/掉榜、暴涨检测 |
+| `html_reporter.py` | 生成专业 HTML 邮件（无 emoji，可点击链接） |
+| `database.py` | SQLite 数据库操作，支持数据持久化 |
+
+### 扩展开发
+
+**新增数据源**
+```python
+# 修改 skills_fetcher.py
+class SkillsFetcher:
+    def __init__(self, timeout: int = 30000):
+        self.trending_url = "your_custom_url"
+```
+
+**新增分析维度**
+```python
+# 修改 trend_analyzer.py
+def calculate_trends(self, today_skills, today, ai_summary_map):
+    # 添加新的分析逻辑
+    pass
+```
+
+**自定义邮件样式**
+```python
+# 修改 html_reporter.py
+def _get_header(self, date: str) -> str:
+    # 修改样式和布局
+    pass
+```
 
 ---
 
 ## 常见问题
 
-### Q: 邮件没有收到？
+### 邮件没有收到？
 
-检查：
-1. Resend API Key 是否正确
-2. 收件人邮箱是否正确
-3. 垃圾邮件箱
+1. 检查 Resend API Key 是否正确
+2. 确认收件人邮箱地址
+3. 查看垃圾邮件箱
+4. 检查 GitHub Actions 日志
 
-### Q: 数据库文件在哪里？
+### Playwright 浏览器安装失败？
+
+```bash
+# 重新安装
+playwright install chromium --with-deps
+```
+
+### 数据库文件在哪里？
 
 默认位置：`data/trends.db`
 
-### Q: 如何更改运行时间？
-
-修改 `.github/workflows/skills-trending.yml` 中的 `cron` 表达式。
-
-### Q: 如何查看历史数据？
+### 如何查看历史数据？
 
 ```bash
 sqlite3 data/trends.db
+.tables
+SELECT * FROM skills_daily ORDER BY date DESC LIMIT 10;
+```
+
+### 如何更改运行时间？
+
+编辑 `.github/workflows/skills-trending.yml`：
+```yaml
+schedule:
+  - cron: '0 2 * * *'  # UTC 时间，每天 02:00
 ```
 
 ---
@@ -346,4 +394,4 @@ sqlite3 data/trends.db
 - [skills.sh](https://skills.sh) - 技能数据来源
 - [Anthropic](https://anthropic.com) - Claude AI
 - [Resend](https://resend.com) - 邮件服务
-# Skills Trending
+- [Playwright](https://playwright.dev) - 浏览器自动化
