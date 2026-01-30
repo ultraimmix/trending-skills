@@ -148,17 +148,17 @@ def main():
         deleted = db.cleanup_old_data(DB_RETENTION_DAYS)
         print()
 
-        # 完成
-        print("╔════════════════════════════════════════════════════════════╗")
-        print("║                                                              ║")
-        print("║   ✅ 任务完成!                                              ║")
-        print("║                                                              ║")
-        print(f"║   日期: {today}                                            ║")
-        print(f"║   技能数: {len(today_skills)}                                    ║")
-        print(f"║   新晋: {len(trends['new_entries'])} | 跌出: {len(trends['dropped_entries'])}                         ║")
-        print(f"║   暴涨: {len(trends['surging'])}                                                ║")
-        print("║                                                              ║")
-        print("╚════════════════════════════════════════════════════════════╝")
+        # 完成 - 简洁输出（避免终端字符宽度问题）
+        print()
+        print("=" * 40)
+        print("  ✅ 任务完成!")
+        print("=" * 40)
+        print(f"  日期:   {today}")
+        print(f"  技能数: {len(today_skills)}")
+        print(f"  新晋:   {len(trends['new_entries'])}")
+        print(f"  跌出:   {len(trends['dropped_entries'])}")
+        print(f"  暴涨:   {len(trends['surging'])}")
+        print("=" * 40)
 
     except KeyboardInterrupt:
         print("\n⚠️ 用户中断")
