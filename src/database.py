@@ -55,10 +55,11 @@ class Database:
         self.connect()
         cursor = self.conn.cursor()
 
-        # 1. skills_daily - 每日快照表
+        # 1. skills_snapshot - 快照表（每次抓取一条记录）
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS skills_daily (
+            CREATE TABLE IF NOT EXISTS skills_snapshot (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                snapshot_time TEXT NOT NULL,
                 date TEXT NOT NULL,
                 rank INTEGER NOT NULL,
                 name TEXT NOT NULL,
@@ -69,9 +70,30 @@ class Database:
                 rank_delta INTEGER DEFAULT 0,
                 url TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(date, name)
+                UNIQUE(snapshot_time, name)
             )
         """)
+
+        # 兼容旧表：如果存在 skills_daily 则迁移数据后删除
+        cursor.execute("""
+            SELECT name FROM sqlite_master WHERE type='table' AND name='skills_daily'
+        """)
+        if cursor.fetchone():
+            # 检查是否已迁移
+            cursor.execute("SELECT COUNT(*) FROM skills_snapshot")
+            if cursor.fetchone()[0] == 0:
+                print("📦 迁移旧数据 skills_daily -> skills_snapshot...")
+                cursor.execute("""
+                    INSERT OR IGNORE INTO skills_snapshot
+                    (snapshot_time, date, rank, name, owner, installs, installs_delta, installs_rate, rank_delta, url, created_at)
+                    SELECT
+                        date || ' 00:00:00' as snapshot_time,
+                        date, rank, name, owner, installs, installs_delta, installs_rate, rank_delta, url, created_at
+                    FROM skills_daily
+                """)
+            # 删除旧表
+            print("🗑️ 删除旧表 skills_daily...")
+            cursor.execute("DROP TABLE skills_daily")
 
         # 2. skills_details - 技能详情缓存表
         cursor.execute("""
@@ -104,9 +126,10 @@ class Database:
         """)
 
         # 创建索引
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_daily_date ON skills_daily(date)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_daily_name ON skills_daily(name)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_daily_rank ON skills_daily(date, rank)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_snapshot_time ON skills_snapshot(snapshot_time)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_snapshot_date ON skills_snapshot(date)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_snapshot_name ON skills_snapshot(name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_snapshot_rank ON skills_snapshot(snapshot_time, rank)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_details_category ON skills_details(category)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_details_owner ON skills_details(owner)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_history_name ON skills_history(skill_name)")
@@ -115,11 +138,12 @@ class Database:
         self.conn.commit()
         print(f"✅ 数据库初始化完成: {self.db_path}")
 
-    def save_today_data(self, date: str, skills: List[Dict]) -> None:
+    def save_snapshot(self, snapshot_time: str, date: str, skills: List[Dict]) -> None:
         """
-        保存今日数据
+        保存快照数据
 
         Args:
+            snapshot_time: 快照时间 YYYY-MM-DD HH:MM:SS
             date: 日期 YYYY-MM-DD
             skills: 技能列表
         """
@@ -128,10 +152,11 @@ class Database:
 
         for skill in skills:
             cursor.execute("""
-                INSERT OR REPLACE INTO skills_daily
-                (date, rank, name, owner, installs, installs_delta, installs_rate, rank_delta, url)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT OR REPLACE INTO skills_snapshot
+                (snapshot_time, date, rank, name, owner, installs, installs_delta, installs_rate, rank_delta, url)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
+                snapshot_time,
                 date,
                 skill.get("rank"),
                 skill.get("name"),
@@ -156,11 +181,17 @@ class Database:
             ))
 
         self.conn.commit()
-        print(f"✅ 保存今日数据: {len(skills)} 条记录")
+        print(f"✅ 保存快照数据: {len(skills)} 条记录 ({snapshot_time})")
+
+    # 兼容旧方法
+    def save_today_data(self, date: str, skills: List[Dict]) -> None:
+        """兼容旧方法，自动生成快照时间"""
+        snapshot_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.save_snapshot(snapshot_time, date, skills)
 
     def get_skills_by_date(self, date: str) -> List[Dict]:
         """
-        获取指定日期的数据
+        获取指定日期最新一次快照的数据
 
         Args:
             date: 日期 YYYY-MM-DD
@@ -171,28 +202,90 @@ class Database:
         self.connect()
         cursor = self.conn.cursor()
 
+        # 获取该日期最新的快照时间
+        cursor.execute("""
+            SELECT MAX(snapshot_time) as latest
+            FROM skills_snapshot
+            WHERE date = ?
+        """, (date,))
+
+        row = cursor.fetchone()
+        if not row or not row["latest"]:
+            return []
+
+        latest_time = row["latest"]
+
         cursor.execute("""
             SELECT rank, name, owner, installs, installs_delta, installs_rate, rank_delta, url
-            FROM skills_daily
-            WHERE date = ?
+            FROM skills_snapshot
+            WHERE snapshot_time = ?
             ORDER BY rank
-        """, (date,))
+        """, (latest_time,))
+
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+
+    def get_last_snapshot(self, before_time: str = None) -> List[Dict]:
+        """
+        获取上一次快照的数据
+
+        Args:
+            before_time: 在此时间之前的快照，格式 YYYY-MM-DD HH:MM:SS
+                        如果不指定，返回最新的快照
+
+        Returns:
+            技能列表
+        """
+        self.connect()
+        cursor = self.conn.cursor()
+
+        if before_time:
+            # 获取指定时间之前的最新快照
+            cursor.execute("""
+                SELECT DISTINCT snapshot_time
+                FROM skills_snapshot
+                WHERE snapshot_time < ?
+                ORDER BY snapshot_time DESC
+                LIMIT 1
+            """, (before_time,))
+        else:
+            # 获取最新的快照
+            cursor.execute("""
+                SELECT DISTINCT snapshot_time
+                FROM skills_snapshot
+                ORDER BY snapshot_time DESC
+                LIMIT 1
+            """)
+
+        row = cursor.fetchone()
+        if not row:
+            return []
+
+        snapshot_time = row["snapshot_time"]
+
+        cursor.execute("""
+            SELECT rank, name, owner, installs, installs_delta, installs_rate, rank_delta, url
+            FROM skills_snapshot
+            WHERE snapshot_time = ?
+            ORDER BY rank
+        """, (snapshot_time,))
 
         rows = cursor.fetchall()
         return [dict(row) for row in rows]
 
     def get_yesterday_data(self, date: str) -> List[Dict]:
         """
-        获取昨日数据
+        获取上一次快照的数据（兼容旧方法）
 
         Args:
-            date: 当前日期 YYYY-MM-DD
+            date: 当前日期（不再使用，保留参数兼容）
 
         Returns:
-            昨日的技能列表
+            上一次快照的技能列表
         """
-        yesterday = (datetime.strptime(date, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
-        return self.get_skills_by_date(yesterday)
+        # 获取当前时间，查找之前的快照
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        return self.get_last_snapshot(before_time=current_time)
 
     def save_skill_details(self, details: List[Dict]) -> None:
         """
@@ -295,13 +388,13 @@ class Database:
         self.connect()
         cursor = self.conn.cursor()
 
-        # 清理每日快照
+        # 清理快照数据
         cursor.execute("""
-            DELETE FROM skills_daily
+            DELETE FROM skills_snapshot
             WHERE date < ?
         """, (cutoff_date,))
 
-        deleted_daily = cursor.rowcount
+        deleted_snapshot = cursor.rowcount
 
         # 清理历史数据
         cursor.execute("""
@@ -312,7 +405,7 @@ class Database:
         deleted_history = cursor.rowcount
 
         self.conn.commit()
-        total_deleted = deleted_daily + deleted_history
+        total_deleted = deleted_snapshot + deleted_history
 
         if total_deleted > 0:
             print(f"🗑️ 清理过期数据: {total_deleted} 条记录 (早于 {cutoff_date})")
@@ -359,12 +452,35 @@ class Database:
 
         cursor.execute("""
             SELECT DISTINCT date
-            FROM skills_daily
+            FROM skills_snapshot
             ORDER BY date DESC
             LIMIT ?
         """, (limit,))
 
         return [row["date"] for row in cursor.fetchall()]
+
+    def get_available_snapshots(self, limit: int = 50) -> List[Dict]:
+        """
+        获取可用的快照列表
+
+        Args:
+            limit: 返回的最大快照数
+
+        Returns:
+            快照列表，包含 snapshot_time 和 date
+        """
+        self.connect()
+        cursor = self.conn.cursor()
+
+        cursor.execute("""
+            SELECT DISTINCT snapshot_time, date, COUNT(*) as skill_count
+            FROM skills_snapshot
+            GROUP BY snapshot_time
+            ORDER BY snapshot_time DESC
+            LIMIT ?
+        """, (limit,))
+
+        return [dict(row) for row in cursor.fetchall()]
 
     def get_category_stats(self, date: str) -> List[Dict]:
         """
@@ -379,14 +495,27 @@ class Database:
         self.connect()
         cursor = self.conn.cursor()
 
+        # 获取该日期最新快照时间
+        cursor.execute("""
+            SELECT MAX(snapshot_time) as latest
+            FROM skills_snapshot
+            WHERE date = ?
+        """, (date,))
+
+        row = cursor.fetchone()
+        if not row or not row["latest"]:
+            return []
+
+        latest_time = row["latest"]
+
         cursor.execute("""
             SELECT d.category, d.category_zh, COUNT(*) as count
-            FROM skills_daily s
+            FROM skills_snapshot s
             LEFT JOIN skills_details d ON s.name = d.name
-            WHERE s.date = ?
+            WHERE s.snapshot_time = ?
             GROUP BY d.category
             ORDER BY count DESC
-        """, (date,))
+        """, (latest_time,))
 
         return [dict(row) for row in cursor.fetchall()]
 
@@ -404,27 +533,40 @@ class Database:
         self.connect()
         cursor = self.conn.cursor()
 
+        # 获取该日期最新快照时间
+        cursor.execute("""
+            SELECT MAX(snapshot_time) as latest
+            FROM skills_snapshot
+            WHERE date = ?
+        """, (date,))
+
+        row = cursor.fetchone()
+        if not row or not row["latest"]:
+            return {"rising": [], "falling": []}
+
+        latest_time = row["latest"]
+
         # 上升最多
         cursor.execute("""
             SELECT s.name, s.rank, s.rank_delta, d.summary, d.category
-            FROM skills_daily s
+            FROM skills_snapshot s
             LEFT JOIN skills_details d ON s.name = d.name
-            WHERE s.date = ? AND s.rank_delta > 0
+            WHERE s.snapshot_time = ? AND s.rank_delta > 0
             ORDER BY s.rank_delta DESC, s.rank ASC
             LIMIT ?
-        """, (date, limit))
+        """, (latest_time, limit))
 
         rising = [dict(row) for row in cursor.fetchall()]
 
         # 下降最多
         cursor.execute("""
             SELECT s.name, s.rank, s.rank_delta, d.summary, d.category
-            FROM skills_daily s
+            FROM skills_snapshot s
             LEFT JOIN skills_details d ON s.name = d.name
-            WHERE s.date = ? AND s.rank_delta < 0
+            WHERE s.snapshot_time = ? AND s.rank_delta < 0
             ORDER BY s.rank_delta ASC, s.rank ASC
             LIMIT ?
-        """, (date, limit))
+        """, (latest_time, limit))
 
         falling = [dict(row) for row in cursor.fetchall()]
 
