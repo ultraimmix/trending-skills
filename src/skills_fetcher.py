@@ -72,7 +72,7 @@ class SkillsFetcher:
                     await page.goto(self.trending_url, wait_until="domcontentloaded", timeout=60000)
 
                     # 等待页面稳定
-                    await asyncio.sleep(5)
+                    await asyncio.sleep(15)
 
                     # 尝试滚动页面以确保内容加载
                     try:
@@ -90,7 +90,7 @@ class SkillsFetcher:
                     # 检查是否包含关键内容
                     if "Skills Leaderboard" not in content and "Leaderboard" not in content:
                         print(f"  ⚠️ 未找到排行榜标题，等待更长时间...")
-                        await asyncio.sleep(10)
+                        await asyncio.sleep(15)
                         content = await page.evaluate("() => document.body.innerText")
 
                     await browser.close()

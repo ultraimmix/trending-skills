@@ -52,3 +52,4 @@ docs/.index.json
 
 # 日志
 *.log
+data/

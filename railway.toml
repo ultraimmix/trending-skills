@@ -1,0 +1,7 @@
+[build]
+builder = "dockerfile"
+
+[deploy]
+# 不需要持续运行，每次触发执行一次
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
